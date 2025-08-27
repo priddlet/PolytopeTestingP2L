@@ -1,0 +1,24 @@
+[
+  {
+    "dimension": 3,
+    "balance_ratio": 0.1,
+    "sample_size": 500,
+    "standard_accuracy": 0.5394737124443054,
+    "standard_f1": 0.10256410256410256,
+    "standard_precision": 0.06451612903225806,
+    "standard_recall": 0.25,
+    "p2l_accuracy": 0.9473684430122375,
+    "p2l_f1": 0.75,
+    "p2l_precision": 0.75,
+    "p2l_recall": 0.75,
+    "p2l_improvement": 0.40789473056793213,
+    "support_set_size": 70,
+    "support_set_ratio": 0.2,
+    "convergence_iterations": 70,
+    "converged": true,
+    "train_balance": 0.1,
+    "val_balance": 0.0945945945945946,
+    "test_balance": 0.10526315789473684,
+    "metadata": "{'type': 'hypercube', 'center': array([0., 0., 0.]), 'side_length': 2.0, 'volume': 8.0}",
+    "p2l_accuracies": [
+      

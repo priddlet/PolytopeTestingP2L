@@ -1,0 +1,77 @@
+
+============================================================
+EXPERIMENT 1 ANALYSIS SUMMARY
+============================================================
+Experiment: Dimension Comparison (Fixed P2L)
+Date: 2025-08-25 19:33:12
+Polytope Type: Hypercube
+Dimensions Tested: [2, 3, 5, 7, 10]
+Balance Ratio: 30%
+
+OVERALL PERFORMANCE:
+----------------------------------------
+• Average Standard Accuracy: 0.572
+• Average P2L Accuracy: 0.725
+• Average Standard F1: 0.287
+• Average P2L F1: 0.126
+• Average Improvement: 0.152
+• Best Improvement: 0.212 (3D)
+• Worst Improvement: 0.033 (7D)
+
+P2L CHARACTERISTICS:
+----------------------------------------
+• Convergence Rate: 0.0%
+• Average Support Set Ratio: 24.2%
+
+DIMENSION-SPECIFIC ANALYSIS:
+----------------------------------------
+
+2D Hypercube:
+  • Standard: Acc=0.616, F1=0.356
+  • P2L: Acc=0.781, F1=0.421
+  • Improvement: +0.166
+  • Converged: No
+  • Support Set: 24.2%
+
+3D Hypercube:
+  • Standard: Acc=0.517, F1=0.215
+  • P2L: Acc=0.728, F1=0.163
+  • Improvement: +0.212
+  • Converged: No
+  • Support Set: 24.2%
+
+5D Hypercube:
+  • Standard: Acc=0.550, F1=0.244
+  • P2L: Acc=0.709, F1=0.043
+  • Improvement: +0.159
+  • Converged: No
+  • Support Set: 24.2%
+
+7D Hypercube:
+  • Standard: Acc=0.669, F1=0.444
+  • P2L: Acc=0.702, F1=0.000
+  • Improvement: +0.033
+  • Converged: No
+  • Support Set: 24.2%
+
+10D Hypercube:
+  • Standard: Acc=0.510, F1=0.178
+  • P2L: Acc=0.702, F1=0.000
+  • Improvement: +0.192
+  • Converged: No
+  • Support Set: 24.2%
+
+KEY INSIGHTS:
+----------------------------------------
+1. P2L consistently improves accuracy across all dimensions
+2. Best improvement observed in 3D (0.212)
+3. F1 scores are lower for P2L, suggesting precision/recall trade-off
+4. No P2L runs converged within 100 iterations
+5. Support set size remains consistent at ~24% across dimensions
+
+RECOMMENDATIONS:
+----------------------------------------
+1. Investigate why F1 scores are lower for P2L despite higher accuracy
+2. Consider increasing max iterations or adjusting convergence criteria
+3. Explore different sample selection strategies for higher dimensions
+4. Analyze the precision/recall trade-off in P2L vs standard training
