@@ -231,10 +231,16 @@ class FixedPolytopeP2LConfig(P2LConfig):
         return model_state, opt_state
     
     def evaluate_on_nonsupport_set(self, graphdef: nnx.GraphDef, model_state: nnx.State,
-                                 nonsupport_data: jax.Array, nonsupport_targets: jax.Array) -> Tuple[float, float, int, bool]:
+                                 nonsupport_data: jax.Array, nonsupport_targets: jax.Array, scaler=None) -> Tuple[float, float, int, bool]:
         """Evaluate the model on the non-support set and check convergence"""
+        # Apply scaling if provided
+        if scaler is not None:
+            nonsupport_data_scaled = scaler.transform(nonsupport_data)
+        else:
+            nonsupport_data_scaled = nonsupport_data
+            
         # Forward pass
-        model_output = self.forward(graphdef, model_state, nonsupport_data, deterministic=True, key=jax.random.key(0))
+        model_output = self.forward(graphdef, model_state, nonsupport_data_scaled, deterministic=True, key=jax.random.key(0))
         
         # Compute loss and accuracy
         loss = self.loss_function(model_output, nonsupport_targets)
@@ -248,15 +254,16 @@ class FixedPolytopeP2LConfig(P2LConfig):
 
 def run_fixed_polytope_p2l_experiment(data: jax.Array, targets: jax.Array, 
                                     config: FixedPolytopeP2LConfig,
-                                    key: Optional[jax.Array] = None) -> Dict[str, Any]:
+                                    key: Optional[jax.Array] = None, scaler=None) -> Dict[str, Any]:
     """
-    Run a fixed P2L experiment for polytope classification
+    Run a fixed P2L experiment for polytope classification with optional scaling
     
     Args:
         data: Input data
         targets: Target labels
         config: Fixed P2L configuration
         key: JAX random key
+        scaler: Optional scaler for consistent data scaling
         
     Returns:
         Dictionary containing experiment results
@@ -270,144 +277,13 @@ def run_fixed_polytope_p2l_experiment(data: jax.Array, targets: jax.Array,
     
     config.init_data = init_data_override
     
-    # Run P2L
-    results = pick_to_learn(config, key)
+    # Run P2L with optional scaler
+    results = pick_to_learn(config, key, scaler=scaler)
     
     return results
 
 
-def run_fixed_polytope_p2l_experiment_with_scaling(data: jax.Array, targets: jax.Array, 
-                                                  config: FixedPolytopeP2LConfig,
-                                                  scaler=None, key: Optional[jax.Array] = None) -> Dict[str, Any]:
-    """
-    Run a fixed P2L experiment for polytope classification with proper scaling
-    
-    Args:
-        data: Input data
-        targets: Target labels
-        config: Fixed P2L configuration
-        scaler: Optional scaler for consistent scaling
-        key: JAX random key
-        
-    Returns:
-        Dictionary containing experiment results
-    """
-    if key is None:
-        key = jax.random.key(0)
-    
-    # Split the random key for different components
-    key, model_key, sets_key = jax.random.split(key, 3)
-    
-    # Initialize model, optimizer
-    model = config.init_model(model_key)
-    graphdef, model_state = nnx.split(model)
-    opt = config.init_optimizer()
-    opt_state = opt.init(model_state)
-    
-    n_total = data.shape[0]
-    
-    # Initialize support and non-support sets
-    support_indices, nonsupport_indices = initialize_support_sets(
-        n_total, config.pretrain_fraction, sets_key
-    )
-    initial_support_set_size = len(support_indices)
-    initial_nonsupport_set_size = len(nonsupport_indices)
-    
-    print(f"Starting P2L with {len(support_indices)} initial support examples")
-    
-    iteration = 0
-    converged = False
-    losses = []
-    accuracies = []
-    
-    # Main P2L loop
-    while iteration < config.max_iterations:
-        print(f"\n--- P2L Iteration {iteration + 1} ---")
-        print(f"Support set size: {len(support_indices)}")
-        print(f"Non-support set size: {len(nonsupport_indices)}")
-        
-        key, key_train = jax.random.split(key)
-        
-        # Step 1: Train model on current support set with scaling
-        if support_indices:
-            support_data = data[np.array(support_indices)]
-            support_targets = targets[np.array(support_indices)]
-            
-            model_state, opt_state = config.train_on_support_set(
-                graphdef,
-                model_state,
-                opt,
-                opt_state,
-                support_data,
-                support_targets,
-                key_train,
-                scaler=scaler  # Pass scaler for consistent scaling
-            )
-        
-        # Step 2: Evaluate on non-support set and check convergence
-        if nonsupport_indices:
-            nonsupport_data = data[np.array(nonsupport_indices)]
-            nonsupport_targets = targets[np.array(nonsupport_indices)]
-            
-            # Apply scaling for evaluation if scaler provided
-            if scaler is not None:
-                nonsupport_data_scaled = scaler.transform(nonsupport_data)
-            else:
-                nonsupport_data_scaled = nonsupport_data
-            
-            # Update the forward method to use scaled data
-            model_output = config.forward(graphdef, model_state, nonsupport_data_scaled, deterministic=True, key=jax.random.key(0))
-            
-            # Compute loss and accuracy
-            loss = config.loss_function(model_output, nonsupport_targets)
-            accuracy = config.accuracy(model_output, nonsupport_targets)
-            
-            # Check convergence and find worst sample
-            worst_index, converged = config.eval_p2l_convergence(model_output, nonsupport_targets)
-        else:
-            loss = 0.0
-            accuracy = 1.0
-            worst_index = 0
-            converged = True
-        
-        # Log metrics for this iteration
-        losses.append(loss)
-        accuracies.append(accuracy)
-        print(f"Loss: {loss}")
-        print(f"Accuracy: {accuracy}")
-        
-        if converged:
-            print("P2L Converged!")
-            break
-        
-        # Step 3: If not converged, move least appropriate example to support set
-        if nonsupport_indices:
-            support_indices.append(nonsupport_indices.pop(worst_index))
-        
-        iteration += 1
-    
-    # Check final convergence status
-    if not converged:
-        print(f"Warning: P2L did not converge after {config.max_iterations} iterations")
-    
-    # Calculate generalization bound
-    bound = generalization_bound(
-        len(support_indices) - initial_support_set_size,
-        initial_nonsupport_set_size,
-        config.confidence_param,
-    )
-    
-    # Return comprehensive results dictionary
-    return {
-        "final_model": nnx.merge(graphdef, model_state),
-        "support_indices": support_indices,
-        "nonsupport_indices": nonsupport_indices,
-        "generalization_bound": bound,
-        "num_iterations": iteration,
-        "converged": converged,
-        "losses": losses,
-        "accuracies": accuracies,
-    }
+
 
 
 def compare_fixed_p2l_vs_standard(data: jax.Array, targets: jax.Array,
@@ -461,8 +337,8 @@ def compare_fixed_p2l_vs_standard(data: jax.Array, targets: jax.Array,
     standard_model = trainer.train_optimal(train_data, train_targets, val_data, val_targets)
     
     # P2L training with consistent scaling
-    p2l_results = run_fixed_polytope_p2l_experiment_with_scaling(
-        train_data, train_targets, config, standard_model['scaler'], key
+    p2l_results = run_fixed_polytope_p2l_experiment(
+        train_data, train_targets, config, key, scaler=standard_model['scaler']
     )
     
     # Size-matched baseline: train standard model on random subset of same size

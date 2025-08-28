@@ -236,7 +236,7 @@ class FixedPolytopeTypesExperiment:
         # Initialize data for P2L
         p2l_config.init_data = lambda key: (splits['train'][0], splits['train'][1])
         
-        p2l_results = pick_to_learn(p2l_config, jax.random.key(42))
+        p2l_results = pick_to_learn(p2l_config, jax.random.key(42), scaler=scaler)
         
         # Evaluate P2L model with comprehensive metrics
         p2l_model = p2l_results['final_model']

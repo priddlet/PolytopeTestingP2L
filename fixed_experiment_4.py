@@ -206,18 +206,13 @@ class FixedHyperparameterExperiment:
             max_iterations=max_iter
         )
         
-        p2l_results = pick_to_learn(p2l_config, jax.random.key(42))
+        p2l_results = pick_to_learn(p2l_config, jax.random.key(42), scaler=scaler)
         
         # Evaluate P2L model
         p2l_model = p2l_results['final_model']
         
-        # Scale test data - use the same scaler that was used during P2L training
-        if 'scaler' in p2l_results:
-            test_data_scaled = p2l_results['scaler'].transform(splits['test'][0])
-        else:
-            # If no scaler in results, create a new one and fit it to training data
-            scaler = StandardScaler()
-            test_data_scaled = scaler.fit_transform(splits['test'][0])
+        # Scale test data using the same scaler
+        test_data_scaled = scaler.transform(splits['test'][0])
         
         # Get predictions
         test_logits = p2l_model(test_data_scaled)

@@ -331,6 +331,7 @@ class P2LConfig:
         support_data: jax.Array,
         support_targets: jax.Array,
         key: jax.Array,
+        scaler=None,
     ) -> Tuple[nnx.State, optax.OptState]:
         """Train the model on the current support set
 
@@ -350,6 +351,12 @@ class P2LConfig:
         """
         num_support = support_data.shape[0]
 
+        # Apply scaling if provided
+        if scaler is not None:
+            support_data_scaled = scaler.transform(support_data)
+        else:
+            support_data_scaled = support_data
+
         # Train for specified epochs
         for _epoch in trange(
             self.train_epochs, desc="Training on support set", leave=False
@@ -357,7 +364,7 @@ class P2LConfig:
             key, key_epoch = jax.random.split(key)
             # Shuffle data for this epoch
             perm = jax.random.permutation(key_epoch, num_support)
-            data_shuffled = support_data[perm]
+            data_shuffled = support_data_scaled[perm]
             targets_shuffled = support_targets[perm]
 
             # Train in batches
@@ -384,13 +391,13 @@ class P2LConfig:
 
         return model_state, opt_state
 
-    @partial(jax.jit, static_argnames=["self", "graphdef"])
     def evaluate_on_nonsupport_set(
         self,
         graphdef: nnx.GraphDef,
         model_state: nnx.State,
         nonsupport_data: jax.Array,
         nonsupport_targets: jax.Array,
+        scaler=None,
     ) -> Tuple[float, float, int, bool]:
         """Evaluate current model performance on the non-support set.
 
@@ -407,8 +414,14 @@ class P2LConfig:
             - worst_index: Index of the worst example in the non-support set
             - converged: Whether the P2L algorithm has converged
         """
+        # Apply scaling if provided
+        if scaler is not None:
+            nonsupport_data_scaled = scaler.transform(nonsupport_data)
+        else:
+            nonsupport_data_scaled = nonsupport_data
+            
         loss, accuracy, model_output = self.eval_step(
-            graphdef, model_state, nonsupport_data, nonsupport_targets
+            graphdef, model_state, nonsupport_data_scaled, nonsupport_targets
         )
         worst_index, converged = self.eval_p2l_convergence(
             model_output, nonsupport_targets
@@ -470,7 +483,7 @@ def generalization_bound(k: int, N: int, beta: float) -> float:
     return eps
 
 
-def pick_to_learn(config: P2LConfig, key: jax.Array) -> Dict[str, Any]:
+def pick_to_learn(config: P2LConfig, key: jax.Array, scaler=None) -> Dict[str, Any]:
     """Pick-to-Learn (P2L) Method
 
     The P2L method iteratively:
@@ -482,6 +495,7 @@ def pick_to_learn(config: P2LConfig, key: jax.Array) -> Dict[str, Any]:
     Args:
         config (P2LConfig): P2L configuration for your choice of dataset and model / hypothesis class
         key (jax.Array): Jax random key
+        scaler: Optional scaler for consistent data scaling throughout P2L iterations
 
     Returns:
         results (Dict[str, Any]): A dictionary containing
@@ -493,6 +507,7 @@ def pick_to_learn(config: P2LConfig, key: jax.Array) -> Dict[str, Any]:
         - converged (bool): Whether P2L converged
         - losses (List[float]): List of losses across P2L iterations
         - accuracies (List[float]): List of accuracies across P2L iterations
+        - scaler: The scaler used (if provided)
     """
     # Build model, optimizer, data
     key, model_key, data_key, sets_key = jax.random.split(key, 4)
@@ -538,6 +553,7 @@ def pick_to_learn(config: P2LConfig, key: jax.Array) -> Dict[str, Any]:
                 data[np.array(support_indices)],
                 targets[np.array(support_indices)],
                 key_train,
+                scaler=scaler,
             )
 
         # Step 2: Evaluate on non-support set and check convergence
@@ -547,6 +563,7 @@ def pick_to_learn(config: P2LConfig, key: jax.Array) -> Dict[str, Any]:
                 model_state,
                 data[np.array(nonsupport_indices)],
                 targets[np.array(nonsupport_indices)],
+                scaler=scaler,
             )
         )
 
@@ -585,4 +602,5 @@ def pick_to_learn(config: P2LConfig, key: jax.Array) -> Dict[str, Any]:
         "converged": converged,
         "losses": losses,
         "accuracies": accuracies,
+        "scaler": scaler,
     }

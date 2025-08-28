@@ -276,7 +276,7 @@ class FixedShapeElongationExperiment:
         # Initialize data for P2L
         config.init_data = lambda key: (train_data, train_labels)
         
-        p2l_results = pick_to_learn(config, jax.random.key(42))
+        p2l_results = pick_to_learn(config, jax.random.key(42), scaler=standard_results['scaler'])
         
         # Extract P2L metrics
         p2l_accuracy = p2l_results['final_accuracy']

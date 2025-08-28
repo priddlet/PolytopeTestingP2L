@@ -5,6 +5,7 @@ This module provides a P2L configuration for polytope classification,
 integrating with the existing P2L framework and using the optimal trainer.
 """
 
+import numpy as np
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -262,7 +263,7 @@ class PolytopeP2LConfig(P2LConfig):
 
 def run_polytope_p2l_experiment(data: jax.Array, targets: jax.Array, 
                                config: PolytopeP2LConfig,
-                               key: Optional[jax.Array] = None) -> Dict[str, Any]:
+                               key: Optional[jax.Array] = None, scaler=None) -> Dict[str, Any]:
     """
     Run a P2L experiment for polytope classification
     
@@ -284,26 +285,30 @@ def run_polytope_p2l_experiment(data: jax.Array, targets: jax.Array,
     
     config.init_data = init_data_override
     
-    # Run P2L
-    results = pick_to_learn(config, key)
+    # Run P2L with optional scaling
+    results = pick_to_learn(config, key, scaler=scaler)
     
     return results
 
 
 def compare_p2l_vs_standard(data: jax.Array, targets: jax.Array,
                            config: PolytopeP2LConfig,
-                           key: Optional[jax.Array] = None) -> Dict[str, Any]:
+                           key: Optional[jax.Array] = None,
+                           A: Optional[jax.Array] = None,
+                           b: Optional[jax.Array] = None) -> Dict[str, Any]:
     """
-    Compare P2L vs standard training for polytope classification
+    Compare P2L vs standard training for polytope classification with comprehensive metrics
     
     Args:
         data: Input data
         targets: Target labels
         config: P2L configuration
         key: JAX random key
+        A: True polytope constraint matrix (for geometric metrics)
+        b: True polytope constraint vector (for geometric metrics)
         
     Returns:
-        Dictionary containing comparison results
+        Dictionary containing comprehensive comparison results
     """
     if key is None:
         key = jax.random.key(0)
@@ -326,47 +331,180 @@ def compare_p2l_vs_standard(data: jax.Array, targets: jax.Array,
     test_data = data[test_indices]
     test_targets = targets[test_indices]
     
-    # Standard training
-    print("Running standard training...")
-    standard_model = config.init_model(key)
-    standard_optimizer = config.init_optimizer()
+    print(f"Data split: Train={len(train_data)}, Val={len(val_data)}, Test={len(test_data)}")
     
-    # Simple training loop - just run a few epochs for comparison
-    print("Standard training completed (simplified)")
-    # For now, we'll just use the initial model without training
-    # In a full implementation, you would implement proper training here
+    # 1. Standard training with proper scaling
+    print("1. Running standard training...")
+    from classifier import OptimalTrainer
+    from sklearn.metrics import f1_score, precision_score, recall_score
     
-    # P2L training
-    print("Running P2L training...")
-    p2l_results = run_polytope_p2l_experiment(data, targets, config, key)
+    trainer = OptimalTrainer(
+        learning_rate=0.001,
+        epochs=50,  # Reasonable training epochs
+        batch_size=32
+    )
+    
+    standard_results = trainer.train_optimal(train_data, train_targets, val_data, val_targets)
+    standard_model = standard_results['model']
+    scaler = standard_results['scaler']
+    
+    # Evaluate standard model with comprehensive metrics
+    standard_metrics = trainer.evaluate_model_with_metrics(
+        standard_model, test_data, test_targets, scaler
+    )
+    
+    print(f"   Standard - Accuracy: {standard_metrics['accuracy']:.3f}, F1: {standard_metrics['f1']:.3f}")
+    print(f"   Standard - Violation Rate: {standard_metrics['violation_rate']:.3f}")
+    
+    # 2. P2L training with consistent scaling
+    print("2. Running P2L training...")
+    p2l_results = run_polytope_p2l_experiment(train_data, train_targets, config, key, scaler=scaler)
     p2l_model = p2l_results['final_model']
     
-    # Evaluate both models
-    standard_test_acc = config.compute_accuracy(standard_model, test_data, test_targets)
-    p2l_test_acc = config.compute_accuracy(p2l_model, test_data, test_targets)
+    # Evaluate P2L model with comprehensive metrics
+    p2l_metrics = trainer.evaluate_model_with_metrics(
+        p2l_model, test_data, test_targets, scaler
+    )
     
-    standard_train_acc = config.compute_accuracy(standard_model, train_data, train_targets)
-    p2l_train_acc = config.compute_accuracy(p2l_model, train_data, train_targets)
+    print(f"   P2L - Accuracy: {p2l_metrics['accuracy']:.3f}, F1: {p2l_metrics['f1']:.3f}")
+    print(f"   P2L - Violation Rate: {p2l_metrics['violation_rate']:.3f}")
+    print(f"   P2L - Support Set Size: {len(p2l_results['support_indices'])} ({len(p2l_results['support_indices'])/len(train_data)*100:.1f}%)")
     
-    results = {
-        'standard': {
-            'train_accuracy': float(standard_train_acc),
-            'test_accuracy': float(standard_test_acc),
-            'model': standard_model
-        },
-        'p2l': {
-            'train_accuracy': float(p2l_train_acc),
-            'test_accuracy': float(p2l_test_acc),
-            'model': p2l_model,
-            'support_set_size': len(p2l_results['support_indices']),
-            'generalization_bound': p2l_results['generalization_bound']
+    # 3. Size-matched random subset baseline
+    print("3. Running size-matched random baseline...")
+    key, random_key = jax.random.split(key)
+    support_size = len(p2l_results['support_indices'])
+    random_indices = jax.random.permutation(random_key, len(train_data))[:support_size]
+    random_train_data = train_data[random_indices]
+    random_train_targets = train_targets[random_indices]
+    
+    random_trainer = OptimalTrainer(
+        learning_rate=0.001,
+        epochs=50,
+        batch_size=32
+    )
+    random_results = random_trainer.train_optimal(random_train_data, random_train_targets, val_data, val_targets)
+    random_model = random_results['model']
+    random_scaler = random_results['scaler']
+    
+    # Evaluate random baseline with comprehensive metrics
+    random_metrics = random_trainer.evaluate_model_with_metrics(
+        random_model, test_data, test_targets, random_scaler
+    )
+    
+    print(f"   Random - Accuracy: {random_metrics['accuracy']:.3f}, F1: {random_metrics['f1']:.3f}")
+    print(f"   Random - Violation Rate: {random_metrics['violation_rate']:.3f}")
+    
+    # 4. Geometric fidelity metrics (if polytope constraints provided)
+    geometric_metrics = {}
+    if A is not None and b is not None:
+        print("4. Computing geometric fidelity metrics...")
+        from geometric_metrics import compute_geometric_metrics
+        
+        # Compute bounding box for Monte Carlo sampling
+        min_coords = np.min(data, axis=0)
+        max_coords = np.max(data, axis=0)
+        bounding_box = (min_coords, max_coords)
+        
+        # Geometric metrics for all models
+        standard_geo = compute_geometric_metrics(
+            standard_model, A, b, test_data, test_targets, 
+            scaler, bounding_box
+        )
+        p2l_geo = compute_geometric_metrics(
+            p2l_model, A, b, test_data, test_targets, 
+            scaler, bounding_box
+        )
+        random_geo = compute_geometric_metrics(
+            random_model, A, b, test_data, test_targets, 
+            random_scaler, bounding_box
+        )
+        
+        geometric_metrics = {
+            'standard': standard_geo,
+            'p2l': p2l_geo,
+            'random': random_geo
         }
+        
+        print(f"   Standard IoU: {standard_geo['monte_carlo_metrics']['iou']:.3f}")
+        print(f"   P2L IoU: {p2l_geo['monte_carlo_metrics']['iou']:.3f}")
+        print(f"   Random IoU: {random_geo['monte_carlo_metrics']['iou']:.3f}")
+    
+    # 5. Compile comprehensive results
+    results = {
+        # Standard metrics
+        'standard_accuracy': standard_metrics['accuracy'],
+        'standard_f1': standard_metrics['f1'],
+        'standard_precision': standard_metrics['precision'],
+        'standard_recall': standard_metrics['recall'],
+        'standard_violation_rate': standard_metrics['violation_rate'],
+        'standard_false_safe_rate': standard_metrics['false_safe_rate'],
+        
+        # P2L metrics
+        'p2l_accuracy': p2l_metrics['accuracy'],
+        'p2l_f1': p2l_metrics['f1'],
+        'p2l_precision': p2l_metrics['precision'],
+        'p2l_recall': p2l_metrics['recall'],
+        'p2l_violation_rate': p2l_metrics['violation_rate'],
+        'p2l_false_safe_rate': p2l_metrics['false_safe_rate'],
+        
+        # Random baseline metrics
+        'random_accuracy': random_metrics['accuracy'],
+        'random_f1': random_metrics['f1'],
+        'random_precision': random_metrics['precision'],
+        'random_recall': random_metrics['recall'],
+        'random_violation_rate': random_metrics['violation_rate'],
+        'random_false_safe_rate': random_metrics['false_safe_rate'],
+        
+        # Improvements
+        'p2l_accuracy_improvement': p2l_metrics['accuracy'] - standard_metrics['accuracy'],
+        'p2l_f1_improvement': p2l_metrics['f1'] - standard_metrics['f1'],
+        'p2l_violation_improvement': standard_metrics['violation_rate'] - p2l_metrics['violation_rate'],
+        
+        'random_vs_standard_accuracy': random_metrics['accuracy'] - standard_metrics['accuracy'],
+        'random_vs_standard_f1': random_metrics['f1'] - standard_metrics['f1'],
+        
+        'p2l_vs_random_accuracy': p2l_metrics['accuracy'] - random_metrics['accuracy'],
+        'p2l_vs_random_f1': p2l_metrics['f1'] - random_metrics['f1'],
+        
+        # Support set info
+        'support_set_size': len(p2l_results['support_indices']),
+        'support_set_ratio': len(p2l_results['support_indices']) / len(train_data),
+        'converged': p2l_results.get('converged', False),
+        'num_iterations': p2l_results.get('num_iterations', 0),
+        
+        # Geometric metrics
+        'geometric_metrics': geometric_metrics,
+        
+        # Full results for detailed analysis
+        'standard_metrics': standard_metrics,
+        'p2l_metrics': p2l_metrics,
+        'random_metrics': random_metrics,
+        'p2l_results': p2l_results
     }
     
-    print(f"\nResults:")
-    print(f"Standard - Train Acc: {standard_train_acc:.4f}, Test Acc: {standard_test_acc:.4f}")
-    print(f"P2L - Train Acc: {p2l_train_acc:.4f}, Test Acc: {p2l_test_acc:.4f}")
-    print(f"P2L Support Set Size: {len(p2l_results['support_indices'])}")
-    print(f"P2L Generalization Bound: {p2l_results['generalization_bound']:.4f}")
+    # 6. Print comprehensive summary
+    print(f"\n📊 COMPREHENSIVE COMPARISON RESULTS")
+    print("=" * 60)
+    print(f"Standard Training:")
+    print(f"  Accuracy: {standard_metrics['accuracy']:.3f}, F1: {standard_metrics['f1']:.3f}")
+    print(f"  Violation Rate: {standard_metrics['violation_rate']:.3f}, False Safe: {standard_metrics['false_safe_rate']:.3f}")
+    
+    print(f"\nP2L Training:")
+    print(f"  Accuracy: {p2l_metrics['accuracy']:.3f}, F1: {p2l_metrics['f1']:.3f}")
+    print(f"  Violation Rate: {p2l_metrics['violation_rate']:.3f}, False Safe: {p2l_metrics['false_safe_rate']:.3f}")
+    print(f"  Support Set: {len(p2l_results['support_indices'])} samples ({len(p2l_results['support_indices'])/len(train_data)*100:.1f}%)")
+    print(f"  Improvement: {p2l_metrics['accuracy'] - standard_metrics['accuracy']:+.3f} accuracy, {p2l_metrics['f1'] - standard_metrics['f1']:+.3f} F1")
+    
+    print(f"\nRandom Baseline (size-matched):")
+    print(f"  Accuracy: {random_metrics['accuracy']:.3f}, F1: {random_metrics['f1']:.3f}")
+    print(f"  Violation Rate: {random_metrics['violation_rate']:.3f}, False Safe: {random_metrics['false_safe_rate']:.3f}")
+    print(f"  P2L vs Random: {p2l_metrics['accuracy'] - random_metrics['accuracy']:+.3f} accuracy, {p2l_metrics['f1'] - random_metrics['f1']:+.3f} F1")
+    
+    if geometric_metrics:
+        print(f"\nGeometric Fidelity:")
+        print(f"  Standard IoU: {geometric_metrics['standard']['monte_carlo_metrics']['iou']:.3f}")
+        print(f"  P2L IoU: {geometric_metrics['p2l']['monte_carlo_metrics']['iou']:.3f}")
+        print(f"  Random IoU: {geometric_metrics['random']['monte_carlo_metrics']['iou']:.3f}")
     
     return results 
