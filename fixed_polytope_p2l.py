@@ -9,10 +9,7 @@ from flax import nnx
 import optax
 from typing import Tuple, Dict, Any, Optional
 
-# Import the core P2L implementation
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'picktolearn'))
+# Import the core P2L implementation from local copy
 from p2l import P2LConfig, pick_to_learn, initialize_support_sets, generalization_bound
 
 # Import our local modules

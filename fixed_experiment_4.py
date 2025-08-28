@@ -22,9 +22,8 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 os.environ['XLA_FLAGS'] = '--xla_gpu_strict_conv_algorithm_picker=false'
 print("Using GPU with very conservative memory management")
 
-# Add parent directory to path
-sys.path.append('..')
-from picktolearn.p2l import pick_to_learn
+# Use local p2l implementation with safety-critical asymmetric margin selection
+from p2l import pick_to_learn
 
 # Import our modules
 from polytope_generator import PolytopeGenerator
