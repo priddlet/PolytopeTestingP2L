@@ -335,7 +335,7 @@ class FixedDataBalanceAmountExperiment:
         # Panel 5: P2L Convergence Analysis
         ax5 = fig.add_subplot(gs[1, 1])
         convergence_data = df.groupby('dimension')['convergence_iterations'].mean()
-        convergence_data.plot(kind='bar', ax=ax5, width=0.6, color='lightgreen')
+        convergence_data.plot(kind='bar', ax=ax5, width=0.6, color='lightblue')
         ax5.set_xlabel('Dimension')
         ax5.set_ylabel('Average Convergence Iterations')
         ax5.set_title('P2L Convergence by Dimension')
@@ -345,7 +345,7 @@ class FixedDataBalanceAmountExperiment:
         # Panel 6: Improvement vs Balance Ratio
         ax6 = fig.add_subplot(gs[1, 2])
         improvement_data = df.groupby('balance_ratio')['p2l_improvement_numeric'].mean()
-        colors = ['red' if x < 0 else 'green' for x in improvement_data]
+        colors = ['red' if x < 0 else 'blue' for x in improvement_data]
         improvement_data.plot(kind='bar', ax=ax6, width=0.6, color=colors)
         ax6.set_xlabel('Balance Ratio')
         ax6.set_ylabel('P2L Improvement')
@@ -401,7 +401,7 @@ class FixedDataBalanceAmountExperiment:
         for i in range(len(summary_stats)):
             for j in range(len(summary_stats[0])):
                 if i == 0:  # Header row
-                    table[(i, j)].set_facecolor('#4CAF50')
+                    table[(i, j)].set_facecolor('#2196F3')
                     table[(i, j)].set_text_props(weight='bold', color='white')
                 else:
                     table[(i, j)].set_facecolor('#f0f0f0')

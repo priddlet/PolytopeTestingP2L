@@ -205,3 +205,57 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# =============================================================================
+# P2L Research Framework Specific Exclusions
+# =============================================================================
+
+# Experiment results and outputs
+experiment_*_results/
+comprehensive_experiment_results/
+*_results/
+results/
+*_analysis/
+
+# Test outputs and visualizations
+*.png
+*.jpg
+*.jpeg
+*.pdf
+geometric_verification_visualization.png
+
+# Test files (keep core functionality, exclude test scripts)
+test_*.py
+*_test.py
+
+# Documentation files (keep README, exclude detailed docs)
+PIPELINE_IMPROVEMENTS.md
+IMPLEMENTATION_SUMMARY.md
+EXPERIMENT_SUMMARY.md
+P2L_IMPROVEMENT_SUMMARY.md
+RESEARCH_QUESTIONS.md
+README_FORME.md
+
+# Large data files
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.npz
+
+# Temporary files
+*.tmp
+*.temp
+*~
+regenerate_blue_visualizations.py
+comprehensive_experiment.py
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo

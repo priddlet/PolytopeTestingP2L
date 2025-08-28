@@ -441,7 +441,7 @@ class FixedPolytopeTypesExperiment:
             iterations = type_data['convergence_iterations']
             converged = type_data['converged']
             
-            colors_iter = ['green' if c else 'red' for c in converged]
+            colors_iter = ['blue' if c else 'red' for c in converged]
             ax5.scatter(type_data['dimension'], iterations, s=100, alpha=0.7, 
                        label=polytope_type, color=colors[i])
         
@@ -479,7 +479,7 @@ class FixedPolytopeTypesExperiment:
         
         # Color the header row
         for i in range(8):
-            table[(0, i)].set_facecolor('#4CAF50')
+            table[(0, i)].set_facecolor('#2196F3')
             table[(0, i)].set_text_props(weight='bold', color='white')
         
         ax6.set_title('Summary Statistics', fontweight='bold', fontsize=14, pad=20)

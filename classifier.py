@@ -188,6 +188,79 @@ class OptimalTrainer:
         
         return optimizer
     
+    def evaluate_model(self, model, test_data, test_labels, scaler=None):
+        """Evaluate a trained model on test data with proper scaling"""
+        if scaler is not None:
+            test_data_scaled = scaler.transform(test_data)
+        else:
+            test_data_scaled = test_data
+            
+        if hasattr(model, 'predict_proba'):  # sklearn model
+            predictions = model.predict(test_data_scaled)
+            accuracy = (predictions == test_labels).mean()
+        else:  # JAX model
+            logits = model(test_data_scaled, deterministic=True)
+            predictions = (jax.nn.sigmoid(logits) > 0.5).astype(jnp.float32)
+            accuracy = (predictions.flatten() == test_labels).mean()
+        
+        return accuracy
+    
+    def evaluate_model_with_metrics(self, model, test_data, test_labels, scaler=None):
+        """Evaluate a trained model with comprehensive metrics including F1 and violation rate"""
+        if scaler is not None:
+            test_data_scaled = scaler.transform(test_data)
+        else:
+            test_data_scaled = test_data
+            
+        if hasattr(model, 'predict_proba'):  # sklearn model
+            predictions = model.predict(test_data_scaled)
+            probabilities = model.predict_proba(test_data_scaled)[:, 1]  # Probability of positive class
+        else:  # JAX model
+            logits = model(test_data_scaled, deterministic=True)
+            probabilities = jax.nn.sigmoid(logits).flatten()
+            predictions = (probabilities > 0.5).astype(jnp.float32)
+        
+        # Convert to numpy for sklearn metrics
+        predictions_np = np.array(predictions)
+        test_labels_np = np.array(test_labels)
+        probabilities_np = np.array(probabilities)
+        
+        # Calculate metrics
+        accuracy = (predictions_np == test_labels_np).mean()
+        
+        # F1 score
+        from sklearn.metrics import f1_score, precision_score, recall_score
+        f1 = f1_score(test_labels_np, predictions_np, zero_division=0)
+        precision = precision_score(test_labels_np, predictions_np, zero_division=0)
+        recall = recall_score(test_labels_np, predictions_np, zero_division=0)
+        
+        # Violation rate (fraction of truly-unsafe points predicted "safe")
+        # Assuming 1 = safe, 0 = unsafe
+        safe_mask = test_labels_np == 1
+        unsafe_mask = test_labels_np == 0
+        
+        if np.any(unsafe_mask):
+            violation_rate = np.mean(predictions_np[unsafe_mask] == 1)  # False positives for unsafe class
+        else:
+            violation_rate = 0.0
+        
+        # False safe rate (fraction of safe points predicted "unsafe")
+        if np.any(safe_mask):
+            false_safe_rate = np.mean(predictions_np[safe_mask] == 0)  # False negatives for safe class
+        else:
+            false_safe_rate = 0.0
+        
+        return {
+            'accuracy': float(accuracy),
+            'f1': float(f1),
+            'precision': float(precision),
+            'recall': float(recall),
+            'violation_rate': float(violation_rate),
+            'false_safe_rate': float(false_safe_rate),
+            'predictions': predictions_np,
+            'probabilities': probabilities_np
+        }
+    
     def train_optimal(self, train_data, train_labels, val_data, val_labels, key=None, 
                      initial_model=None, initial_scaler=None, initial_optimizer_state=None):
         """Optimal training procedure with optional warm-starting"""
@@ -367,14 +440,17 @@ def train_logistic_regression(train_data, train_labels, val_data, val_labels):
     }
 
 
-def evaluate_model(model, scaler, test_data, test_labels):
-    """Evaluate a trained model on test data"""
-    if hasattr(model, 'predict_proba'):  # sklearn model
+def evaluate_model(model, test_data, test_labels, scaler=None):
+    """Evaluate a trained model on test data with proper scaling"""
+    if scaler is not None:
         test_data_scaled = scaler.transform(test_data)
+    else:
+        test_data_scaled = test_data
+        
+    if hasattr(model, 'predict_proba'):  # sklearn model
         predictions = model.predict(test_data_scaled)
         accuracy = (predictions == test_labels).mean()
     else:  # JAX model
-        test_data_scaled = scaler.transform(test_data)
         logits = model(test_data_scaled, deterministic=True)
         predictions = (jax.nn.sigmoid(logits) > 0.5).astype(jnp.float32)
         accuracy = (predictions.flatten() == test_labels).mean()

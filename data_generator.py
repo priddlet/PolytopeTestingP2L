@@ -365,6 +365,31 @@ class PolytopeDataGenerator:
         
         return bounds
     
+    def generate_polytope_data(self, A: np.ndarray, b: np.ndarray, n_samples: int, 
+                              balance_ratio: float = 0.3, key: Optional[jax.Array] = None) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Generate data from existing polytope constraints
+        
+        Args:
+            A: Constraint matrix
+            b: Constraint vector
+            n_samples: Number of samples to generate
+            balance_ratio: Target ratio of safe points
+            key: JAX random key
+            
+        Returns:
+            Tuple of (data, targets)
+        """
+        if key is None:
+            key = jax.random.key(42)
+        
+        # Use direct balanced generation
+        data, targets, _ = self._direct_balanced_generation(
+            A, b, "custom", balance_ratio, n_samples, "binary", {}
+        )
+        
+        return data, targets
+    
     def split_data(self, data: np.ndarray, labels: np.ndarray, 
                    train_ratio: float = 0.7, val_ratio: float = 0.15, 
                    test_ratio: float = 0.15, random_seed: Optional[int] = None) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
