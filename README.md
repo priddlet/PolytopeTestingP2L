@@ -36,7 +36,6 @@ pip install -U "jax[cuda12]"
 ### 2. Clone the Repository
 ```bash
 git clone <your-repo-url>
-cd polytope_testing
 ```
 
 ### 3. Create Virtual Environment
