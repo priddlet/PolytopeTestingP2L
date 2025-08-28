@@ -182,33 +182,62 @@ class PolytopeP2LConfig(P2LConfig):
         return accuracy_fn(model_output, target)
     
     def eval_p2l_convergence(self, model_output: jax.Array, target: jax.Array) -> Tuple[int, bool]:
-        """Evaluate P2L convergence by checking if accuracy is above threshold.
+        """Safety-critical convergence evaluation with asymmetric signed margin selection
+        
+        Implements the principled selection rule with safety-critical asymmetry:
+        1. Use signed margin to prioritize misclassified points over low-margin correct ones
+        2. Weight violations (unsafe→safe mistakes) more heavily than false alarms (safe→unsafe)
+        3. Misclassified points get negative margins and are always picked first
+        4. Low-margin correct points are picked next to stabilize boundaries
+        
+        With logits z_i and labels y_i ∈ {0,1}, define t_i = 2*y_i - 1 ∈ {-1, +1}
+        Logit margin: m_i = t_i * z_i
+        Weighted score: s_i = w_i * m_i where w_i depends on safety-critical importance
+        
+        (Negative m_i ⇔ misclassified; small positive m_i ⇔ correct but low-confidence)
+        (target=0 = unsafe, target=1 = safe; violations are unsafe→safe mistakes)
         
         Args:
-            model_output (jax.Array): Model predictions
-            target (jax.Array): Target labels
+            model_output (jax.Array): Model logits
+            target (jax.Array): Target labels {0,1}
             
         Returns:
             (worst_index, converged) (Tuple[int, bool]): Index of worst example and convergence status
         """
-        # Compute per-sample accuracies (1 if correct, 0 if wrong)
-        predictions = jax.nn.sigmoid(model_output)
-        predictions_binary = (predictions > 0.5).astype(jnp.float32)
-        correct_predictions = (predictions_binary == target).astype(jnp.float32)
+        # Get logits (model_output) and probabilities
+        logits = model_output.flatten()
+        probabilities = jax.nn.sigmoid(logits)
         
-        # Find the worst example (lowest confidence for correct predictions, highest for wrong)
-        confidence = jnp.abs(predictions - 0.5) * 2  # Scale to [0, 1]
-        # Penalize wrong predictions by giving them negative confidence
-        confidence = jnp.where(correct_predictions == 1, confidence, -confidence)
+        # Convert binary labels to signed targets: {0,1} -> {-1, +1}
+        # t_i = 2*y_i - 1
+        signed_targets = 2.0 * target - 1.0
         
-        # Ensure confidence is finite and within bounds
-        confidence = jnp.nan_to_num(confidence, nan=0.0, posinf=1.0, neginf=-1.0)
-        worst_index = jnp.argmin(confidence)
+        # Compute signed logit margins: m_i = t_i * z_i
+        # Negative margins = misclassified points (always picked first)
+        # Small positive margins = low-confidence correct points (picked next)
+        logit_margins = signed_targets * logits
+        
+        # Safety-critical asymmetry: weight violations more heavily than false alarms
+        # target=0 (unsafe) → w_neg: violations (unsafe→safe) are worse
+        # target=1 (safe) → w_pos: false alarms (safe→unsafe) are less bad
+        w_neg = 2.0  # Weight for unsafe points (violations are critical)
+        w_pos = 1.0  # Weight for safe points (false alarms are less critical)
+        w = jnp.where(target == 0, w_neg, w_pos)
+        
+        # Compute weighted scores: s_i = w_i * m_i
+        # This amplifies the penalty for violations while keeping false alarms manageable
+        weighted_scores = w * logit_margins
+        
+        # Find the worst example (minimum weighted score)
+        # This prioritizes violations over false alarms while maintaining margin-based selection
+        worst_index = jnp.argmin(weighted_scores)
         
         # Ensure worst_index is within bounds
         worst_index = jnp.clip(worst_index, 0, len(target) - 1)
         
-        # Check if overall accuracy is above convergence threshold
+        # Check convergence using accuracy
+        predictions_binary = (probabilities > 0.5).astype(jnp.float32)
+        correct_predictions = (predictions_binary == target).astype(jnp.float32)
         overall_accuracy = jnp.mean(correct_predictions)
         converged = overall_accuracy >= self.convergence_param
         

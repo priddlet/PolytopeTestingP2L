@@ -107,38 +107,60 @@ class FixedPolytopeP2LConfig(P2LConfig):
         return accuracy_fn(model_output, target)
     
     def eval_p2l_convergence(self, model_output: jax.Array, target: jax.Array) -> Tuple[int, bool]:
-        """Improved convergence evaluation with adaptive threshold and better sample selection
+        """Safety-critical convergence evaluation with asymmetric signed margin selection
         
-        Key improvements:
-        1. Adaptive convergence threshold based on data balance
-        2. Prioritize misclassified samples over low-confidence correct ones
-        3. More robust worst sample selection
+        Implements the principled selection rule with safety-critical asymmetry:
+        1. Use signed margin to prioritize misclassified points over low-margin correct ones
+        2. Weight violations (unsafe→safe mistakes) more heavily than false alarms (safe→unsafe)
+        3. Misclassified points get negative margins and are always picked first
+        4. Low-margin correct points are picked next to stabilize boundaries
+        
+        With logits z_i and labels y_i ∈ {0,1}, define t_i = 2*y_i - 1 ∈ {-1, +1}
+        Logit margin: m_i = t_i * z_i
+        Weighted score: s_i = w_i * m_i where w_i depends on safety-critical importance
+        
+        (Negative m_i ⇔ misclassified; small positive m_i ⇔ correct but low-confidence)
+        (target=0 = unsafe, target=1 = safe; violations are unsafe→safe mistakes)
         """
-        # Compute per-sample accuracies
-        predictions = jax.nn.sigmoid(model_output)
-        predictions_binary = (predictions > 0.5).astype(jnp.float32)
-        correct_predictions = (predictions_binary == target).astype(jnp.float32)
+        # Get logits (model_output) and probabilities
+        logits = model_output.flatten()
+        probabilities = jax.nn.sigmoid(logits)
         
-        # Calculate balance ratio for adaptive threshold
-        balance_ratio = jnp.mean(target)
+        # Convert binary labels to signed targets: {0,1} -> {-1, +1}
+        # t_i = 2*y_i - 1
+        signed_targets = 2.0 * target - 1.0
         
-        # Use adaptive convergence threshold based on data balance
-        # For imbalanced data (< 30%), use user's convergence_param
-        # For balanced data (>= 30%), use higher threshold
-        convergence_threshold = jnp.where(balance_ratio < 0.3, self.convergence_param, 0.85)
+        # Compute signed logit margins: m_i = t_i * z_i
+        # Negative margins = misclassified points (always picked first)
+        # Small positive margins = low-confidence correct points (picked next)
+        logit_margins = signed_targets * logits
         
-        # Find the worst example using margin-based selection (distance from decision boundary)
-        # This selects samples closest to the decision boundary (most informative)
-        margin = jnp.abs(predictions - 0.5)  # Distance from 0.5 (decision boundary)
+        # Safety-critical asymmetry: weight violations more heavily than false alarms
+        # target=0 (unsafe) → w_neg: violations (unsafe→safe) are worse
+        # target=1 (safe) → w_pos: false alarms (safe→unsafe) are less bad
+        w_neg = 2.0  # Weight for unsafe points (violations are critical)
+        w_pos = 1.0  # Weight for safe points (false alarms are less critical)
+        w = jnp.where(target == 0, w_neg, w_pos)
         
-        # Find sample with smallest margin (closest to decision boundary)
-        worst_index = jnp.argmin(margin)
+        # Compute weighted scores: s_i = w_i * m_i
+        # This amplifies the penalty for violations while keeping false alarms manageable
+        weighted_scores = w * logit_margins
+        
+        # Find the worst example (minimum weighted score)
+        # This prioritizes violations over false alarms while maintaining margin-based selection
+        worst_index = jnp.argmin(weighted_scores)
         
         # Ensure worst_index is within bounds
         worst_index = jnp.clip(worst_index, 0, len(target) - 1)
         
-        # Check convergence
+        # Check convergence using accuracy
+        predictions_binary = (probabilities > 0.5).astype(jnp.float32)
+        correct_predictions = (predictions_binary == target).astype(jnp.float32)
         overall_accuracy = jnp.mean(correct_predictions)
+        
+        # Use adaptive convergence threshold based on data balance
+        balance_ratio = jnp.mean(target)
+        convergence_threshold = jnp.where(balance_ratio < 0.3, self.convergence_param, 0.85)
         converged = overall_accuracy >= convergence_threshold
         
         return worst_index, converged
